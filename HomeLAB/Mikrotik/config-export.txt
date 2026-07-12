@@ -1,0 +1,341 @@
+RouterOS version: 7.23.2
+
+/disk
+set usb1 comment=USB
+/interface bridge
+add comment=LAN name=br_LAN vlan-filtering=yes
+/interface ethernet
+set [ find default-name=ether5 ] mac-address=mac-address
+/interface veth
+add address=192.168.1.3/25 container-mac-address=mac-address dhcp=no \
+    gateway=192.168.1.1 gateway6="" mac-address=mac-address name=veth1
+/interface wireguard
+add comment=VPN listen-port=51820 mtu=1420 name=wg1
+/interface vlan
+add interface=br_LAN name=vlan2-iot vlan-id=2
+add interface=br_LAN name=vlan3-guest vlan-id=3
+add interface=br_LAN name=vlan4-iot-kb vlan-id=4
+add disabled=yes interface=br_LAN name=vlan10-homelab vlan-id=10
+/container
+add comment=cups cpu-list=cpu0 envlists=cups_env interface=veth1 layer-dir="" \
+    logging=yes memory-high=256.0MiB mountlists=cups_spool name=cups \
+    remote-image=tigerj/cups-airprint:latest root-dir=\
+    /usb1/containers/cups_tigerj start-on-boot=yes
+/interface list
+add comment=List_LAN name=List_LAN
+add name=Management
+add comment="VLANy klienckie wymagajace DHCP/DNS" name=VLAN_Managed
+/interface wifi datapath
+add bridge=br_LAN client-isolation=no comment="Datapath main" disabled=no \
+    name=dp-main
+add bridge=br_LAN client-isolation=yes comment="Datapath IOT" disabled=no \
+    name=dp-iot
+add bridge=br_LAN client-isolation=yes comment="Datapath Guest" disabled=no \
+    name=dp-guest
+/interface wifi security
+add authentication-types=wpa2-psk,wpa3-psk disabled=no name=sec-main
+add authentication-types=wpa2-psk disabled=no ft=no name=sec-iot
+add authentication-types=wpa2-psk disabled=no name=sec-guest
+/interface wifi configuration
+add country=Poland datapath=dp-main disabled=no mode=ap name=cfg-main \
+    security=sec-main ssid=HomeNet
+add country=Poland datapath=dp-iot disabled=no mode=ap name=cfg-iot security=\
+    sec-iot ssid=HomeNet_IoT
+add country=Poland datapath=dp-guest disabled=no mode=ap name=cfg-guest \
+    security=sec-guest ssid=HomeNet_Guest
+/interface wifi
+set [ find default-name=wifi2 ] channel.band=2ghz-ax .width=20mhz \
+    configuration=cfg-main configuration.mode=ap .ssid="HomeNet 2,4" \
+    .tx-power=17 datapath=dp-main disabled=no name="wifi 2,4GHz" security=\
+    sec-main security.authentication-types=wpa2-psk,wpa3-psk
+set [ find default-name=wifi1 ] channel.band=5ghz-ax .width=20/40/80mhz \
+    configuration=cfg-main configuration.mode=ap .ssid="HomeNet 5" .tx-power=\
+    20 datapath=dp-main disabled=no name="wifi 5GHz" security=sec-main \
+    security.authentication-types=wpa2-psk,wpa3-psk
+add configuration=cfg-guest configuration.mode=ap datapath=dp-guest \
+    mac-address=mac-address master-interface="wifi 2,4GHz" name=\
+    "wifi guest 2,4GHz" security=sec-guest
+add configuration=cfg-guest configuration.mode=ap datapath=dp-guest \
+    mac-address=mac-address master-interface="wifi 5GHz" name=\
+    "wifi guest 5GHz" security=sec-guest
+add configuration=cfg-iot configuration.mode=ap datapath=dp-iot disabled=no \
+    mac-address=mac-address master-interface="wifi 2,4GHz" name=\
+    "wifi iot" security=sec-iot
+/ip dhcp-server option
+add code=6 name=local_dns_server value="'192.168.1.11''192.168.1.1'"
+/ip pool
+add name=dhcp_pool_iot ranges=172.16.2.10-172.16.2.62
+add name=dhcp_pool_guest ranges=172.16.3.10-172.16.3.62
+add name=dhcp_pool_iot_kb ranges=172.16.4.10-172.16.4.30
+add name=dhcp_pool_homelab ranges=192.168.10.10-192.168.10.30
+add name=dhcp_pool_lan ranges=192.168.1.20-192.168.1.126
+/ip dhcp-server
+add address-pool=dhcp_pool_iot interface=vlan2-iot lease-time=12h name=\
+    dhcp_iot
+add address-pool=dhcp_pool_lan interface=br_LAN lease-time=12h name=dhcp_lan
+add address-pool=dhcp_pool_guest interface=vlan3-guest lease-time=2h name=\
+    dhcp_guest
+add address-pool=dhcp_pool_iot_kb interface=vlan4-iot-kb lease-time=12h name=\
+    dhcp_iot_kb
+add address-pool=dhcp_pool_homelab disabled=yes interface=vlan10-homelab \
+    lease-time=12h name=dhcp_homelab
+/ip smb users
+add name=user
+/system logging action
+set 1 disk-file-name=usb1/logs/routeros disk-lines-per-file=5000
+/system script
+add comment="Przelacznik sieci WiFi HomeNet_Guest" dont-require-permissions=\
+    no name=toggle-guest-wifi owner=user policy=\
+    ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="\
+    \n    :local guestInterfaces [/interface/wifi/find where name~\"guest\"]\
+    \n    :if ([:len \$guestInterfaces] > 0) do={\
+    \n        :foreach id in=\$guestInterfaces do={\
+    \n            :local intName [/interface/wifi/get \$id name]\
+    \n            :if ([/interface/wifi/get \$id disabled]) do={\
+    \n                /interface/wifi/enable \$id\
+    \n                :log warning \"Automatyzacja WiFi: Siec goscinna (\$intN\
+    ame) zostala WLACZONA.\"\
+    \n            } else={\
+    \n                /interface/wifi/disable \$id\
+    \n                :log warning \"Automatyzacja WiFi: Siec goscinna (\$intN\
+    ame) zostala WYLACZONA.\"\
+    \n            }\
+    \n        }\
+    \n    } else={\
+    \n        :log error \"Automatyzacja WiFi: Krytyczny blad! Nie znaleziono \
+    interfejsow zawierajacych slowo 'guest' w nazwie.\"\
+    \n    }\
+    \n"
+/app settings
+set disk=usb1 lan-bridge=*19 router-ip=10.100.0.1
+/container config
+set registry-url=https://registry-1.docker.io
+/container envs
+add key=CUPSADMIN list=cups_env value=value
+add key=CUPSPASSWORD list=cups_env value=value
+/container mounts
+add dst=/etc/cups list=cups_config src=/usb1/containers/cups_config
+add dst=/var/spool/cups list=cups_spool src=/usb1/containers/cups_spool
+/ip smb
+set comment=Mikrotik-USB-SMB enabled=yes
+/interface bridge port
+add bridge=br_LAN interface=ether4 pvid=4
+add bridge=br_LAN interface=ether3 pvid=4
+add bridge=br_LAN interface=ether2
+add bridge=br_LAN frame-types=admit-only-vlan-tagged interface=ether1
+add bridge=br_LAN interface="wifi 5GHz"
+add bridge=br_LAN interface="wifi 2,4GHz"
+add bridge=br_LAN interface="wifi iot" pvid=2
+add bridge=br_LAN interface="wifi guest 2,4GHz" pvid=3
+add bridge=br_LAN interface="wifi guest 5GHz" pvid=3
+add bridge=br_LAN interface=veth1
+/ip neighbor discovery-settings
+set discover-interface-list=Management
+/interface bridge vlan
+add bridge=br_LAN untagged="ether2,wifi 2,4GHz,wifi 5GHz,veth1,br_LAN" \
+    vlan-ids=1
+add bridge=br_LAN tagged=br_LAN untagged="wifi iot" vlan-ids=2
+add bridge=br_LAN tagged=br_LAN untagged="wifi guest 2,4GHz,wifi guest 5GHz" \
+    vlan-ids=3
+add bridge=br_LAN tagged=br_LAN,ether1 untagged=ether3,ether4 vlan-ids=4
+add bridge=br_LAN tagged=br_LAN,ether1 vlan-ids=10
+/interface list member
+add interface=br_LAN list=List_LAN
+add interface=br_LAN list=Management
+add interface=vlan10-homelab list=Management
+add interface=wg1 list=Management
+add interface=vlan2-iot list=VLAN_Managed
+add interface=vlan3-guest list=VLAN_Managed
+add interface=vlan4-iot-kb list=VLAN_Managed
+/interface wifi access-list
+add action=reject comment="Reject poor signal" disabled=no signal-range=\
+    -85..-120
+add action=accept comment=Guest disabled=yes vlan-id=3
+/interface wireguard peers
+add allowed-address=10.99.0.2/32 client-allowed-address=0.0.0.0/0 client-dns=\
+    192.168.1.11,192.168.1.1 comment="M\C3\B3j telefon" interface=wg1 name=\
+    Galaxy_S24_FE public-key="public-key" \
+    responder=yes
+add allowed-address=10.99.0.3/32 client-allowed-address=0.0.0.0/0 client-dns=\
+    192.168.1.11,192.168.1.1 comment="M\C3\B3j Laptop" interface=wg1 name=\
+    Dell_Latitude_5430 public-key=\
+    "public-key"
+/ip address
+add address=172.16.2.1/26 comment=IoT interface=vlan2-iot network=172.16.2.0
+add address=172.16.3.1/26 comment=Guest interface=vlan3-guest network=\
+    172.16.3.0
+add address=10.99.0.1/28 comment=VPN interface=wg1 network=10.99.0.0
+add address=172.16.4.1/27 comment="IoT kablowe" interface=vlan4-iot-kb \
+    network=172.16.4.0
+add address=192.168.10.1/27 comment=HomeLab disabled=yes interface=\
+    vlan10-homelab network=192.168.10.0
+add address=192.168.1.1/25 comment=LAN interface=br_LAN network=192.168.1.0
+/ip dhcp-client
+add comment=WAN interface=ether5 name=DHCP_client-WAN use-peer-dns=no \
+    use-peer-ntp=no
+/ip dhcp-server lease
+add address=172.16.2.61 comment=\
+    "Czujnik temperatury i wilgotno\C5\9Bci - gara\C5\BC" mac-address=\
+    mac-address server=dhcp_iot
+add address=172.16.4.3 client-id=client-id comment=Rejestrator \
+    mac-address=mac-address server=dhcp_iot_kb
+add address=172.16.4.2 comment="Pompa ciep\C5\82a" mac-address=\
+    mac-address server=dhcp_iot_kb
+add address=172.16.2.11 comment=Gniazdko mac-address=mac-address \
+    server=dhcp_iot
+add address=192.168.1.2 client-id=client-id comment=Tenda_AP \
+    mac-address=mac-address server=dhcp_lan
+add address=192.168.1.4 client-id=client-id comment=Drukarka \
+    mac-address=mac-address server=dhcp_lan
+add address=192.168.1.9 client-id=client-id comment=Telefon \
+    dhcp-option=local_dns_server server=dhcp_lan
+add address=192.168.1.8 client-id=client-id comment=Laptop \
+    dhcp-option=local_dns_server mac-address=mac-address server=\
+    dhcp_lan
+add address=192.168.1.11 comment=srv-core dhcp-option=local_dns_server \
+    disabled=yes mac-address=mac-address server=dhcp_lan
+add address=192.168.1.12 comment=srv-app dhcp-option=local_dns_server \
+    disabled=yes mac-address=mac-address server=dhcp_lan
+/ip dhcp-server network
+add address=172.16.2.0/26 dns-server=172.16.2.1 gateway=172.16.2.1
+add address=172.16.3.0/26 dns-server=172.16.3.1 gateway=172.16.3.1
+add address=172.16.4.0/27 dns-server=172.16.4.1 gateway=172.16.4.1
+add address=192.168.1.0/25 dns-server=192.168.1.1 domain=pn.lan gateway=\
+    192.168.1.1 netmask=25
+add address=192.168.10.0/27 dns-server=192.168.10.1 gateway=192.168.10.1
+/ip dns
+set allow-remote-requests=yes servers=1.1.1.1,8.8.8.8
+/ip dns static
+add address=192.168.1.1 comment="Glowny router" name=HomeNet-RB.pn.lan type=A
+add address=192.168.1.1 comment="Glowny router - alias" name=router.pn.lan \
+    type=A
+/ip firewall address-list
+add address=172.16.4.2 comment="Pompa Ciepa" list=Urzdzenia_Techniczne
+add address=172.16.4.3 comment="Rejestrator NVR" list=Urzdzenia_Techniczne
+/ip firewall filter
+add action=accept chain=input comment=\
+    "[IN] 01. Stateful: Akceptuj polaczenia nawiazane/powiazane" \
+    connection-state=established,related,untracked
+add action=drop chain=input comment=\
+    "[IN] 02. Stateful: Odrzuc pakiety bledne (Invalid)" connection-state=\
+    invalid
+add action=accept chain=input comment=\
+    "[IN] 03. ICMP: Echo Request (Ping) - Rate Limit" icmp-options=8:0 limit=\
+    5,5 protocol=icmp
+add action=accept chain=input comment="[IN] 04. ICMP: Time Exceeded" \
+    icmp-options=11:0 protocol=icmp
+add action=accept chain=input comment=\
+    "[IN] 05. ICMP: Fragmentation Needed (PMTUD)" icmp-options=3:4 protocol=\
+    icmp
+add action=accept chain=input comment="[IN] 06. Core: Akceptuj ruch Loopback" \
+    in-interface=lo
+add action=accept chain=input comment=\
+    "[IN] 07. VPN: Nasluch tunelu WireGuard (WAN)" dst-port=51820 \
+    in-interface=ether5 protocol=udp
+add action=accept chain=input comment=\
+    "[IN] 10. Admin: Pelen dostep zarzadczy dla listy Management" \
+    in-interface-list=Management
+add action=accept chain=input comment=\
+    "[IN] 11. Srv: DHCP dla zaufanych segmentow VLAN" dst-port=67,68 \
+    in-interface-list=VLAN_Managed protocol=udp
+add action=accept chain=input comment=\
+    "[IN] 12. Srv: DNS UDP dla zaufanych segmentow VLAN" dst-port=53 \
+    in-interface-list=VLAN_Managed protocol=udp
+add action=accept chain=input comment=\
+    "[IN] 13. Srv: DNS TCP dla zaufanych segmentow VLAN" dst-port=53 \
+    in-interface-list=VLAN_Managed protocol=tcp
+add action=drop chain=input comment=\
+    "[IN] 99. Izolacja: Domyslna blokada (Default Drop)"
+add action=fasttrack-connection chain=forward comment=\
+    "[FWD] 01. Perf: FastTrack Connection (Offloading)" connection-state=\
+    established,related
+add action=accept chain=forward comment=\
+    "[FWD] 02. Stateful: Akceptuj polaczenia nawiazane/powiazane" \
+    connection-state=established,related,untracked
+add action=drop chain=forward comment=\
+    "[FWD] 03. Stateful: Odrzuc pakiety bledne (Invalid)" connection-state=\
+    invalid
+add action=accept chain=forward comment=\
+    "[FWD] 04. ICMP: Admin/HomeLab -> Anywhere" in-interface-list=Management \
+    protocol=icmp
+add action=accept chain=forward comment=\
+    "[FWD] 08. Wyjatek: HomeAssistant -> LocalTuya" out-interface=vlan2-iot \
+    src-address=192.168.1.13
+add action=accept chain=forward comment=\
+    "[FWD] 08b. Wyjatek: LAN -> Pompa/NVR" dst-address-list=\
+    Urzdzenia_Techniczne in-interface=br_LAN out-interface=vlan4-iot-kb
+add action=accept chain=forward comment=\
+    "[FWD] 09. Routing: br_LAN -> HomeLab" disabled=yes in-interface=br_LAN \
+    out-interface=vlan10-homelab
+add action=accept chain=forward comment="[FWD] 10. Routing: br_LAN -> VPN WG" \
+    in-interface=br_LAN out-interface=wg1
+add action=accept chain=forward comment="[FWD] 11. Routing: VPN WG -> br_LAN" \
+    in-interface=wg1 out-interface=br_LAN
+add action=accept chain=forward comment=\
+    "[FWD] 12. Routing: HomeLab -> VPN WG" disabled=yes in-interface=\
+    vlan10-homelab out-interface=wg1
+add action=accept chain=forward comment=\
+    "[FWD] 13. Routing: VPN WG -> HomeLab" disabled=yes in-interface=wg1 \
+    out-interface=vlan10-homelab
+add action=accept chain=forward comment="[FWD] 14. Internet: br_LAN -> WAN" \
+    in-interface=br_LAN out-interface=ether5
+add action=accept chain=forward comment="[FWD] 15. Internet: HomeLab -> WAN" \
+    disabled=yes in-interface=vlan10-homelab out-interface=ether5
+add action=accept chain=forward comment="[FWD] 16. Internet: IoT -> WAN" \
+    in-interface=vlan2-iot out-interface=ether5
+add action=accept chain=forward comment="[FWD] 17. Internet: Guest -> WAN" \
+    in-interface=vlan3-guest out-interface=ether5
+add action=accept chain=forward comment="[FWD] 18. Internet: IoT-kb -> WAN" \
+    in-interface=vlan4-iot-kb out-interface=ether5
+add action=accept chain=forward comment="[FWD] Internet: VPN WG -> WAN" \
+    in-interface=wg1 out-interface=ether5
+add action=accept chain=forward comment="[FWD] Wyjatek: VPN WG -> Pompa/NVR" \
+    dst-address-list=Urzdzenia_Techniczne in-interface=wg1
+add action=drop chain=forward comment=\
+    "[FWD] 99. Izolacja: Domyslna blokada (Default Drop)"
+/ip firewall mangle
+add action=change-mss chain=forward comment="Clamp MSS dla ruchu z VPN" \
+    in-interface=wg1 new-mss=clamp-to-pmtu protocol=tcp tcp-flags=syn
+add action=change-mss chain=forward comment="Clamp MSS dla ruchu do VPN" \
+    new-mss=clamp-to-pmtu out-interface=wg1 protocol=tcp tcp-flags=syn
+/ip firewall nat
+add action=masquerade chain=srcnat out-interface=ether5
+/ip service
+set ftp disabled=yes
+set ssh address=192.168.1.0/25,192.168.10.0/27,10.99.0.0/28
+set telnet disabled=yes
+set www address=192.168.1.0/25,192.168.10.0/27,10.99.0.0/28
+set winbox address=192.168.1.0/25,192.168.10.0/27,10.99.0.0/28
+set api disabled=yes
+set api-ssl disabled=yes
+/ip smb shares
+add comment=SMB directory=/usb1/smb name=smb
+add comment=LOGS directory=/usb1/logs name=logs valid-users=user
+add comment=BACKUPS directory=/usb1/backups name=backups valid-users=\
+    user
+add comment=CONTAINERS directory=/usb1/containers name=containers \
+    valid-users=user
+add comment=EXPORTS directory=/usb1/exports name=exports valid-users=\
+    user
+/ipv6 nd
+set [ find default=yes ] advertise-dns=yes
+/system clock
+set time-zone-name=Europe/Warsaw
+/system identity
+set name=HomeNet-RB.pn.lan
+/system logging
+add action=disk topics=info
+add action=disk topics=error
+add action=disk topics=warning
+/tool graphing interface
+add allow-address=192.168.1.0/25
+/tool graphing queue
+add allow-address=192.168.1.0/25
+/tool graphing resource
+add allow-address=192.168.1.0/25
+/tool mac-server
+set allowed-interface-list=none
+/tool mac-server mac-winbox
+set allowed-interface-list=Management
+/tool mac-server ping
+set enabled=no
