@@ -1,6 +1,6 @@
 /system script
 add comment="Przelacznik sieci WiFi HomeNet_Guest" dont-require-permissions=\
-    no name=toggle-guest-wifi owner=pniewrzol policy=\
+    no name=toggle-guest-wifi owner=user policy=\
     ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="\
     \n    :local guestInterfaces [/interface/wifi/find where name~\"guest\"]\
     \n    :if ([:len \$guestInterfaces] > 0) do={\
