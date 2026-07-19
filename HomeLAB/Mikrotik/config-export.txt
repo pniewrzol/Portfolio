@@ -10,7 +10,7 @@ set [ find default-name=ether5 ] mac-address=mac-address
 add address=192.168.1.3/25 container-mac-address=mac-address dhcp=no \
     gateway=192.168.1.1 gateway6="" mac-address=mac-address name=veth1
 /interface wireguard
-add comment=VPN listen-port=51820 mtu=1420 name=wg1
+add comment=VPN listen-port=443 mtu=1420 name=wg1
 /interface vlan
 add interface=br_LAN name=vlan2-iot vlan-id=2
 add interface=br_LAN name=vlan3-guest vlan-id=3
@@ -230,7 +230,7 @@ add action=accept chain=input comment=\
 add action=accept chain=input comment="[IN] 06. Core: Akceptuj ruch Loopback" \
     in-interface=lo
 add action=accept chain=input comment=\
-    "[IN] 07. VPN: Nasluch tunelu WireGuard (WAN)" dst-port=51820 \
+    "[IN] 07. VPN: Nasluch tunelu WireGuard (WAN)" dst-port=443 \
     in-interface=ether5 protocol=udp
 add action=accept chain=input comment=\
     "[IN] 10. Admin: Pelen dostep zarzadczy dla listy Management" \
@@ -304,10 +304,11 @@ add action=masquerade chain=srcnat out-interface=ether5
 set ftp disabled=yes
 set ssh address=192.168.1.0/25,192.168.10.0/27,10.99.0.0/28
 set telnet disabled=yes
-set www address=192.168.1.0/25,192.168.10.0/27,10.99.0.0/28
+set www address=192.168.1.0/25,192.168.10.0/27,10.99.0.0/28 disabled=yes
 set winbox address=192.168.1.0/25,192.168.10.0/27,10.99.0.0/28
 set api disabled=yes
 set api-ssl disabled=yes
+set www-ssl address=192.168.1.0/25,192.168.10.0/27,10.99.0.0/28 certificate=CA_Local disabled=no port=25443
 /ip smb shares
 add comment=SMB directory=/usb1/smb name=smb
 add comment=LOGS directory=/usb1/logs name=logs valid-users=user
